@@ -4,26 +4,35 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2, Loader2, AlertCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { countries, salutations } from "@/lib/constants/countries";
 
 const contactSchema = z.object({
+  salutation: z.string().optional(),
   name: z.string().min(2, "Please enter your full name."),
   company: z.string().min(2, "Please enter your company name."),
   email: z.string().email("Please enter a valid email address."),
   phone: z.string().min(7, "Please enter a valid phone number."),
+  city: z.string().min(1, "Please enter your city."),
+  state: z.string().min(1, "Please enter your state/province."),
+  country: z.string().min(1, "Please select your country."),
   challenge: z.string().min(10, "Please tell us a bit more about your challenge."),
   preferredContact: z.enum(["email", "phone"]),
 });
 
 type ContactFormValues = z.infer<typeof contactSchema>;
 
+const selectClassName =
+  "h-9 w-full rounded-xl border border-input bg-transparent px-3 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+
 export function ContactForm() {
-  const [status, setStatus] = useState<"idle" | "submitting" | "success">("idle");
+  const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const {
     register,
@@ -32,15 +41,28 @@ export function ContactForm() {
     reset,
   } = useForm<ContactFormValues>({
     resolver: zodResolver(contactSchema),
-    defaultValues: { preferredContact: "email" },
+    defaultValues: { preferredContact: "email", salutation: "", country: "" },
   });
 
-  async function onSubmit() {
+  async function onSubmit(values: ContactFormValues) {
     setStatus("submitting");
-    // TODO: wire to a real submission endpoint (see SMTP_* env vars in the tech spec).
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    setStatus("success");
-    reset();
+    setErrorMessage(null);
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error ?? "Something went wrong.");
+      }
+      setStatus("success");
+      reset();
+    } catch (err) {
+      setStatus("error");
+      setErrorMessage(err instanceof Error ? err.message : "Something went wrong.");
+    }
   }
 
   if (status === "success") {
@@ -65,6 +87,17 @@ export function ContactForm() {
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="salutation">Salutation (optional)</Label>
+          <select id="salutation" className={selectClassName} {...register("salutation")}>
+            <option value="">Select...</option>
+            {salutations.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="space-y-1.5">
           <Label htmlFor="name">Name</Label>
           <Input id="name" className="rounded-xl" {...register("name")} />
@@ -91,6 +124,34 @@ export function ContactForm() {
           <Input id="phone" type="tel" className="rounded-xl" {...register("phone")} />
           {errors.phone && (
             <p className="text-xs text-error">{errors.phone.message}</p>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="city">City</Label>
+          <Input id="city" className="rounded-xl" {...register("city")} />
+          {errors.city && (
+            <p className="text-xs text-error">{errors.city.message}</p>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="state">State/Province</Label>
+          <Input id="state" className="rounded-xl" {...register("state")} />
+          {errors.state && (
+            <p className="text-xs text-error">{errors.state.message}</p>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="country">Country</Label>
+          <select id="country" className={selectClassName} {...register("country")}>
+            <option value="">Select...</option>
+            {countries.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          {errors.country && (
+            <p className="text-xs text-error">{errors.country.message}</p>
           )}
         </div>
       </div>
@@ -124,6 +185,13 @@ export function ContactForm() {
           </label>
         </div>
       </fieldset>
+
+      {status === "error" && (
+        <div className="flex items-start gap-2 rounded-xl bg-error/10 p-3 text-sm text-error">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          {errorMessage}
+        </div>
+      )}
 
       <Button
         type="submit"
